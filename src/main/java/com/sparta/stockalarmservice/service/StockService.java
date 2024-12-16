@@ -11,6 +11,7 @@ import com.sparta.stockalarmservice.repository.ProductUserNotificationRepository
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -29,14 +30,15 @@ public class StockService {
 
     @Transactional
     public void sendRestockNotification(Long productId) {
-        Long startTime = System.currentTimeMillis();
+        int batchSize = 500;
+        Long ProcessDelay = 1000L;
 
         Product product = productRepository.findById(productId).orElseThrow(() -> new IllegalArgumentException("Product Not Found"));
 
         log.info("알람 발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
 
         product.setRestockRound(product.getRestockRound() + 1);
-        product.setStockStatus(product.getStockStatus() + 500);
+        product.setStockStatus(product.getStockStatus() + 600);
 
         log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
 
@@ -58,41 +60,74 @@ public class StockService {
         Long currentStock = product.getStockStatus();
         String currentStatus = "IN_PROGRESS";
         Long lastNotifiedUser = null;
-        for (ProductUserNotification notification : activeAlarm) {
-            currentStock--;
-            if (currentStock >= 0) {
-                ProductUserNotificationHistory userNotificationHistory = ProductUserNotificationHistory.builder()
-                        .product(product)
-                        .userId(notification.getUserId())
-                        .restockRound(product.getRestockRound())
-                        .notifiedAt(LocalDateTime.now())
-                        .build();
-                productUserNotificationHistoryRepository.save(userNotificationHistory);
-                lastNotifiedUser = notification.getUserId();
-            } else {
-                log.info("empty stock");
-                currentStatus = "CANCELED_BY_SOLD_OUT";
-                break;
+
+        outer:
+        for(int i = 0; i < activeAlarm.size(); i+=batchSize) {
+            Long startTime = System.currentTimeMillis();
+
+            int end = Math.min(i + batchSize, activeAlarm.size());
+            List<ProductUserNotification> batch = activeAlarm.subList(i, end);
+            log.info("처리 인덱스: {} - {}", i, end);
+
+            for (ProductUserNotification notification : batch) {
+                try {
+                    if (currentStock == 0) {
+                        log.info("empty stock");
+                        currentStatus = "CANCELED_BY_SOLD_OUT";
+                        break outer;
+                    }
+                    alarmProcess(product, notification);
+                    currentStock--;
+                    lastNotifiedUser = notification.getUserId();
+
+                } catch (Exception e) {
+                    log.error("알림 발송 실패 : {}", notification.getUserId());
+                    currentStatus = "CANCELED_BY_ERROR";
+                    break outer;
+                }
+            }
+
+            Long endTime = System.currentTimeMillis();
+            Long processTime = endTime - startTime;
+            log.info("배치 처리 시간: {} ms", processTime);
+
+            if(processTime < ProcessDelay){
+                try {
+                    Thread.sleep(ProcessDelay - processTime);
+                    log.info("대기 시간: {} ms", ProcessDelay - processTime);
+                } catch (InterruptedException e){
+                    Thread.currentThread().interrupt();
+                    log.warn("대기 중 인터럽트 발생");
+                }
             }
         }
 
-        log.info("알람 발송 완료");
+        log.info("알람 전송 프로세스 종료");
         if (currentStatus.equals("IN_PROGRESS")) {
             currentStatus = "COMPLETED";
         }
 
-        ProductNotificationHistory afterNotificationLog = ProductNotificationHistory.builder()
+        notificationLog.setNotificationStatus(currentStatus);
+        notificationLog.setLastNotifiedUserId(lastNotifiedUser);
+        log.info("상품 알람 기록 업데이트 : {}, {}", notificationLog.getProduct().getId(), notificationLog.getNotificationStatus());
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void alarmProcess(Product product, ProductUserNotification notification) {
+        sendToUser(notification);
+        ProductUserNotificationHistory userNotificationHistory = ProductUserNotificationHistory.builder()
                 .product(product)
+                .userId(notification.getUserId())
                 .restockRound(product.getRestockRound())
-                .notificationStatus(currentStatus)
-                .lastNotifiedUserId(lastNotifiedUser)
+                .notifiedAt(LocalDateTime.now())
                 .build();
 
-        productNotificationHistoryRepository.save(afterNotificationLog);
-        log.info("상품 알람 기록 업데이트 : {}, {}", afterNotificationLog.getProduct().getId(), afterNotificationLog.getNotificationStatus());
+        productUserNotificationHistoryRepository.save(userNotificationHistory);
+    }
 
-        Long endTime = System.currentTimeMillis();
-        log.info("처리 시간 : {} ms", endTime - startTime);
-
+    public void sendToUser(ProductUserNotification notification) {
+        if (Math.random() < 0.001) {
+            throw new RuntimeException("Failed to send Notification");
+        }
     }
 }
