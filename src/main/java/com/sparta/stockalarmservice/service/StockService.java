@@ -30,29 +30,31 @@ public class StockService {
 
 
     @Transactional
-    public void sendRestockNotification(Long productId, String manual) {
+    public void sendRestockNotification(Long productId, String manualInput) {
         int batchSize = 500;
         Long ProcessDelay = 1000L;
 
         Product product = productRepository.findById(productId).orElseThrow(() -> new IllegalArgumentException("Product Not Found"));
 
         ProductNotificationHistory history = null;
-        if (manual.equals("auto")) {
+        if (manualInput.equals("auto")) {
             log.info("알람 발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
             product.setRestockRound(product.getRestockRound() + 1);
             product.setStockStatus(product.getStockStatus() + 500);
             log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
-        } else if (manual.equals("manual")) {
+        } else if (manualInput.equals("manual")) {
             log.info("알람 재발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
             Optional<ProductNotificationHistory> historyOptional = productNotificationHistoryRepository.findTopByProductIdAndRestockRoundOrderByIdDesc(productId, product.getRestockRound());
             if (historyOptional.isEmpty()) {
-                throw new IllegalArgumentException("BAD REQUEST");
+                throw new IllegalArgumentException("Notification History Not Found");
             } else if (historyOptional.get().getLastNotifiedUserId() == null) {
                 log.info("더 이상 보낼 유저가 없습니다 : {}", productId);
-                throw new IllegalArgumentException("Re-stock Notification is Finished");
+                throw new IllegalArgumentException("Re-stock Notification is already Finished");
             } else {
                 history = historyOptional.get();
             }
+        } else {
+            throw new IllegalArgumentException("Invalid Mode");
         }
 
         ProductNotificationHistory notificationLog = ProductNotificationHistory.builder()
@@ -66,9 +68,9 @@ public class StockService {
 
 
         List<ProductUserNotification> activeAlarm = List.of();
-        if (manual.equals("auto")) {
+        if (manualInput.equals("auto")) {
             activeAlarm = productUserNotificationRepository.findUserByProductAndIsActive(productId);
-        } else if (manual.equals("manual")) {
+        } else if (manualInput.equals("manual")) {
             log.info("다음 알림 대상 인덱스 : {}", history.getLastNotifiedUserId());
             activeAlarm = productUserNotificationRepository.findUserAfterLastNotified(productId, history.getLastNotifiedUserId());
         }
