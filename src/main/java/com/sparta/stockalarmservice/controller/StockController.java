@@ -17,13 +17,22 @@ public class StockController {
 
     @PostMapping("/products/{productId}/notifications/re-stock")
     public ResponseEntity<?> reStockAlarm(@PathVariable("productId") Long productId) {
-        stockService.sendRestockNotification(productId);
-        return ResponseEntity.ok().build();
+        try {
+            stockService.sendRestockNotification(productId, "auto");
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PostMapping("/admin/products/{productId}/notifications/re-stock")
     public ResponseEntity<?> manualReStockAlarm(@PathVariable("productId") Long productId) {
-        return ResponseEntity.ok().build();
+        try {
+            stockService.sendRestockNotification(productId, "manual");
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 }
 

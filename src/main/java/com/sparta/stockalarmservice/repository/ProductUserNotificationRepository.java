@@ -12,4 +12,7 @@ import java.util.List;
 public interface ProductUserNotificationRepository extends JpaRepository<ProductUserNotification, Long> {
     @Query("SELECT u FROM ProductUserNotification u JOIN FETCH u.product WHERE u.product.id = :productId AND u.isActive = true")
     List<ProductUserNotification> findUserByProductAndIsActive(@Param("productId") Long productId);
+
+    @Query("SELECT u FROM ProductUserNotification u WHERE u.product.id = :productId AND u.isActive = true AND u.userId > :lastNotifiedUserId ORDER BY u.userId ASC")
+    List<ProductUserNotification> findUserAfterLastNotified(Long productId, Long lastNotifiedUserId);
 }

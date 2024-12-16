@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -29,18 +30,30 @@ public class StockService {
 
 
     @Transactional
-    public void sendRestockNotification(Long productId) {
+    public void sendRestockNotification(Long productId, String manual) {
         int batchSize = 500;
         Long ProcessDelay = 1000L;
 
         Product product = productRepository.findById(productId).orElseThrow(() -> new IllegalArgumentException("Product Not Found"));
 
-        log.info("알람 발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
-
-        product.setRestockRound(product.getRestockRound() + 1);
-        product.setStockStatus(product.getStockStatus() + 600);
-
-        log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
+        ProductNotificationHistory history = null;
+        if (manual.equals("auto")) {
+            log.info("알람 발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
+            product.setRestockRound(product.getRestockRound() + 1);
+            product.setStockStatus(product.getStockStatus() + 500);
+            log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
+        } else if (manual.equals("manual")) {
+            log.info("알람 재발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
+            Optional<ProductNotificationHistory> historyOptional = productNotificationHistoryRepository.findTopByProductIdAndRestockRoundOrderByIdDesc(productId, product.getRestockRound());
+            if (historyOptional.isEmpty()) {
+                throw new IllegalArgumentException("BAD REQUEST");
+            } else if (historyOptional.get().getLastNotifiedUserId() == null) {
+                log.info("더 이상 보낼 유저가 없습니다 : {}", productId);
+                throw new IllegalArgumentException("Re-stock Notification is Finished");
+            } else {
+                history = historyOptional.get();
+            }
+        }
 
         ProductNotificationHistory notificationLog = ProductNotificationHistory.builder()
                 .product(product)
@@ -52,7 +65,13 @@ public class StockService {
         log.info("알림 상태 갱신 : {}, {}", notificationLog.getProduct().getId(), notificationLog.getNotificationStatus());
 
 
-        List<ProductUserNotification> activeAlarm = productUserNotificationRepository.findUserByProductAndIsActive(productId);
+        List<ProductUserNotification> activeAlarm = List.of();
+        if (manual.equals("auto")) {
+            activeAlarm = productUserNotificationRepository.findUserByProductAndIsActive(productId);
+        } else if (manual.equals("manual")) {
+            log.info("다음 알림 대상 인덱스 : {}", history.getLastNotifiedUserId());
+            activeAlarm = productUserNotificationRepository.findUserAfterLastNotified(productId, history.getLastNotifiedUserId());
+        }
 
         log.info("알람 활성화 수 : {}", activeAlarm.size());
 
@@ -62,7 +81,7 @@ public class StockService {
         Long lastNotifiedUser = null;
 
         outer:
-        for(int i = 0; i < activeAlarm.size(); i+=batchSize) {
+        for (int i = 0; i < activeAlarm.size(); i += batchSize) {
             Long startTime = System.currentTimeMillis();
 
             int end = Math.min(i + batchSize, activeAlarm.size());
@@ -91,11 +110,11 @@ public class StockService {
             Long processTime = endTime - startTime;
             log.info("배치 처리 시간: {} ms", processTime);
 
-            if(processTime < ProcessDelay){
+            if (processTime < ProcessDelay) {
                 try {
                     Thread.sleep(ProcessDelay - processTime);
                     log.info("대기 시간: {} ms", ProcessDelay - processTime);
-                } catch (InterruptedException e){
+                } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     log.warn("대기 중 인터럽트 발생");
                 }
@@ -126,7 +145,7 @@ public class StockService {
     }
 
     public void sendToUser(ProductUserNotification notification) {
-        if (Math.random() < 0.001) {
+        if (Math.random() < 0.01) {
             throw new RuntimeException("Failed to send Notification");
         }
     }
