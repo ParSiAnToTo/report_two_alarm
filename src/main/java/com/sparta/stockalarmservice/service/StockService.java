@@ -11,7 +11,6 @@ import com.sparta.stockalarmservice.repository.ProductUserNotificationRepository
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -34,7 +33,7 @@ public class StockService {
         int batchSize = 500;
         Long ProcessDelay = 1000L;
 
-        Product product = productRepository.findById(productId).orElseThrow(() -> new IllegalArgumentException("Product Not Found"));
+        Product product = productRepository.findByIdWithLock(productId).orElseThrow(() -> new IllegalArgumentException("Product Not Found"));
 
         ProductNotificationHistory history = null;
         if (manualInput.equals("auto")) {
@@ -42,9 +41,11 @@ public class StockService {
             product.setRestockRound(product.getRestockRound() + 1);
             product.setStockStatus(product.getStockStatus() + 500);
             log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
-        } else if (manualInput.equals("manual")) {
+        }
+        else if (manualInput.equals("manual")) {
             log.info("알람 재발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
             Optional<ProductNotificationHistory> historyOptional = productNotificationHistoryRepository.findTopByProductIdAndRestockRoundOrderByIdDesc(productId, product.getRestockRound());
+
             if (historyOptional.isEmpty()) {
                 throw new IllegalArgumentException("Notification History Not Found");
             } else if (historyOptional.get().getLastNotifiedUserId() == null) {
@@ -53,6 +54,7 @@ public class StockService {
             } else {
                 history = historyOptional.get();
             }
+
         } else {
             throw new IllegalArgumentException("Invalid Mode");
         }
@@ -133,7 +135,7 @@ public class StockService {
         log.info("상품 알람 기록 업데이트 : {}, {}", notificationLog.getProduct().getId(), notificationLog.getNotificationStatus());
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void alarmProcess(Product product, ProductUserNotification notification) {
         sendToUser(notification);
         ProductUserNotificationHistory userNotificationHistory = ProductUserNotificationHistory.builder()
