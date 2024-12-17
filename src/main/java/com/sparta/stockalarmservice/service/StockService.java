@@ -39,10 +39,9 @@ public class StockService {
         if (manualInput.equals("auto")) {
             log.info("알람 발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
             product.setRestockRound(product.getRestockRound() + 1);
-            product.setStockStatus(product.getStockStatus() + 500);
+            product.setStockStatus(product.getStockStatus() + 10);
             log.info("인포 업데이트 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
-        }
-        else if (manualInput.equals("manual")) {
+        } else if (manualInput.equals("manual")) {
             log.info("알람 재발송 시작 : {}, {}, {}", product.getId(), product.getRestockRound(), product.getStockStatus());
             Optional<ProductNotificationHistory> historyOptional = productNotificationHistoryRepository.findTopByProductIdAndRestockRoundOrderByIdDesc(productId, product.getRestockRound());
 
@@ -57,6 +56,10 @@ public class StockService {
 
         } else {
             throw new IllegalArgumentException("Invalid Mode");
+        }
+
+        if (product.getStockStatus() == 0) {
+            throw new IllegalArgumentException("Stock is Empty");
         }
 
         ProductNotificationHistory notificationLog = ProductNotificationHistory.builder()
@@ -149,7 +152,7 @@ public class StockService {
     }
 
     public void sendToUser(ProductUserNotification notification) {
-        if (Math.random() < 0.01) {
+        if (Math.random() < 0.0001) {
             throw new RuntimeException("Failed to send Notification");
         }
     }
